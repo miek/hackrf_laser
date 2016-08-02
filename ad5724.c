@@ -6,6 +6,7 @@
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
 #include <unistd.h>
+#include "ad5724.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -22,7 +23,7 @@ static uint32_t speed = 1000000;
 static int fd;
 
 // Write `count` 3-byte transfers
-int ad5724_write(uint8_t *tx, int count)
+static int ad5724_write(uint8_t *tx, int count)
 {
     struct spi_ioc_transfer tr[count];
     int i, ret;
@@ -58,7 +59,7 @@ int ad5724_set_outputs(int16_t *outputs)
 
 // Power on/off all DACs
 // MUST wait at least 10us after powerup before loading DAC register
-int ad5724_set_power(bool on)
+static int ad5724_set_power(bool on)
 {
     uint8_t tx[3];
     tx[0] = 0b010 << 3; // PWR REG
@@ -70,7 +71,7 @@ int ad5724_set_power(bool on)
     return ad5724_write(tx, 1);
 }
 
-int ad5724_set_output_range(uint8_t address, uint8_t range)
+static int ad5724_set_output_range(uint8_t address, uint8_t range)
 {
     uint8_t tx[3];
     tx[0] = (0b001 << 3) | (address & 0x7);
