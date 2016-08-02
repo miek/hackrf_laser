@@ -82,8 +82,9 @@ static int ad5724_set_output_range(uint8_t address, uint8_t range)
 
 int ad5724_init(void)
 {
-    // TODO: set output range on all channels
-    // TODO: power up all channels
+    ad5724_set_output_range(DAC_ADDR_ALL, DAC_RANGE_5);
+    // TODO: delay. or maybe not, should be enough delay from overheads
+    ad5724_set_power(true);
 }
 
 int main(void)
@@ -131,8 +132,16 @@ int main(void)
     printf("bits per word: %d\n", bits);
     printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
 
-    int16_t outputs[] = {1, 2, 3, 4};
-    ad5724_set_outputs(outputs);
+    ad5724_init();
+    int16_t output = 0;
+    int16_t outputs[4];
+    for (;;) {
+        int i;
+        for (i = 0; i < 4; i++)
+            outputs[i] = output;
+        ad5724_set_outputs(outputs);
+        output += 10;
+    }
 
     close(fd);
 
