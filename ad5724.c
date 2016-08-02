@@ -75,8 +75,8 @@ static int ad5724_set_output_range(uint8_t address, uint8_t range)
 {
     uint8_t tx[3];
     tx[0] = (0b001 << 3) | (address & 0x7);
-    tx[2] = 0;
-    tx[1] = range & 0x7;
+    tx[1] = 0;
+    tx[2] = range & 0x7;
     return ad5724_write(tx, 1);
 }
 
