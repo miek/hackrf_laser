@@ -97,6 +97,11 @@ int ad5724_init(void)
     ad5724_set_power(true);
 }
 
+int16_t lerp(int16_t v0, int16_t v1, float t)
+{
+    return v0 + t*(v1-v0);
+}
+
 int main(void)
 {
     int ret = 0;
@@ -151,13 +156,18 @@ int main(void)
     };
     int16_t output = 0;
     int16_t outputs[4];
-    int i = 0;
+    int cur = 0;
+    int next = 1;
     for (;;) {
-        ad5724_set_xy(diamond[i*2], diamond[i*2+1]);
-        i = (i + 1) & 3;
         int j;
-        for (j = 0; j < 1000000; j++)
-            asm("nop");
+        int loops = 10;
+        for (j = 0; j < loops; j++) {
+            int16_t x = lerp(diamond[cur*2], diamond[next*2], (float)j / loops);
+            int16_t y = lerp(diamond[cur*2+1], diamond[next*2+1], (float)j / loops);
+            ad5724_set_xy(x, y);
+        }
+        cur = (cur + 1) & 3;
+        next = (next + 1) & 3;
     }
 
     close(fd);
