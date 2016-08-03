@@ -57,6 +57,16 @@ int ad5724_set_outputs(int16_t *outputs)
     return ad5724_write(tx, 4);
 }
 
+int ad5724_set_xy(int16_t x, int16_t y)
+{
+    int16_t outputs[4];
+    outputs[0] = x;
+    outputs[1] = -x;
+    outputs[2] = y;
+    outputs[3] = -y;
+    return ad5724_set_outputs(outputs);
+}
+
 // Power on/off all DACs
 // MUST wait at least 10us after powerup before loading DAC register
 static int ad5724_set_power(bool on)
@@ -133,14 +143,21 @@ int main(void)
     printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
 
     ad5724_init();
+    int16_t diamond[] = {
+        0, 2047,
+        2047, 0,
+        0, -2047,
+        -2047, 0,
+    };
     int16_t output = 0;
     int16_t outputs[4];
+    int i = 0;
     for (;;) {
-        int i;
-        for (i = 0; i < 4; i++)
-            outputs[i] = output;
-        ad5724_set_outputs(outputs);
-        output += 10;
+        ad5724_set_xy(diamond[i*2], diamond[i*2+1]);
+        i = (i + 1) & 3;
+        int j;
+        for (j = 0; j < 1000000; j++)
+            asm("nop");
     }
 
     close(fd);
