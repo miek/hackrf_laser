@@ -20,6 +20,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
+#include "ad5724.h"
 #include <hackrf.h>
 
 #include <stdio.h>
@@ -204,7 +205,7 @@ void draw_point(float x, float y)
     int16_t y_min = -2047, y_max = 2047;
     int16_t xi = scale_coord(x, x_min, x_max);
     int16_t yi = scale_coord(y, y_min, y_max);
-    printf("%d,%d,", xi, yi);
+    ad5724_set_xy(xi, yi);
 }
 
 void draw_buffer(float *buffer, int buflen, float xoffset, float yoffset, float xscale, float yscale) 
@@ -225,7 +226,7 @@ void draw_buffer(float *buffer, int buflen, float xoffset, float yoffset, float 
 //        fprintf(stderr, "%d, %f\n", i, x);
         draw_point(x, sample);
     }
-    printf("\n");
+    draw_point(1.0f, 0.0f);
 }
 
 
@@ -339,7 +340,7 @@ int main(int argc, char** argv) {
 	struct timeval t_end;
 	float time_diff;
 	unsigned int lna_gain=20, vga_gain=20, txvga_gain=0;
-  
+        ad5724_init();
 	while( (opt = getopt(argc, argv, "a:f:p:l:g:x:d:")) != EOF )
 	{
 		result = HACKRF_SUCCESS;
@@ -418,7 +419,7 @@ int main(int argc, char** argv) {
 		return EXIT_FAILURE;
 	}
 	
-	fftSize = 64;
+	fftSize = 32;
     scan_count = (freq_max - freq_min) / 20;
     power_buffer_len = fftSize * scan_count;
     prev_frequency = freq_min;
@@ -537,30 +538,9 @@ int main(int argc, char** argv) {
 
 	fprintf(stderr, "Stop with Ctrl-C\n");
 	while((hackrf_is_streaming(device) == HACKRF_TRUE) && (do_exit == false)) {
-		uint32_t byte_count_now;
-		struct timeval time_now;
-		float time_difference, rate;
-		sleep(1);
-		
-		gettimeofday(&time_now, NULL);
-		
-		byte_count_now = byte_count;
-		byte_count = 0;
-		
-		time_difference = TimevalDiff(&time_now, &time_start);
-		rate = (float)byte_count_now / time_difference;
-		fprintf(stderr, "%4.1f MiB / %5.3f sec = %4.1f MiB/second\n",
-				(byte_count_now / 1e6f), time_difference, (rate / 1e6f) );
 
         draw_frame();
 
-		time_start = time_now;
-
-		if (byte_count_now == 0) {
-			exit_code = EXIT_FAILURE;
-			fprintf(stderr, "\nCouldn't transfer any bytes for one second.\n");
-			break;
-		}
 	}
 
 	result = hackrf_is_streaming(device);	

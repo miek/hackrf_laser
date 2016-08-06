@@ -28,8 +28,7 @@ add_library(libgetopt_static STATIC
     ../getopt/getopt.c
 )
 endif()
-
-add_executable(hackrf_laser hackrf_laser.c)
+add_executable(hackrf_laser hackrf_laser.c ad5724.c)
 install(TARGETS hackrf_laser RUNTIME DESTINATION ${INSTALL_DEFAULT_BINDIR})
 
 if(NOT libhackrf_SOURCE_DIR)

@@ -48,7 +48,8 @@ static int ad5724_write(uint8_t *tx, int count)
 int ad5724_set_outputs(int16_t *outputs)
 {
     uint8_t tx[3*4];
-    for (int i = 0; i < 4; i++)
+    int i;
+    for (i = 0; i < 4; i++)
     {
         tx[i*3 + 0] = i; // W, 0, REG 0b000, DAC address
         tx[i*3 + 1] = (outputs[i] >> 4) & 0xFF; // Take top 8 bits (of 12)
@@ -93,18 +94,6 @@ static int ad5724_set_output_range(uint8_t address, uint8_t range)
 
 int ad5724_init(void)
 {
-    ad5724_set_output_range(DAC_ADDR_ALL, DAC_RANGE_5);
-    // TODO: delay. or maybe not, should be enough delay from overheads
-    ad5724_set_power(true);
-}
-
-int16_t lerp(int16_t v0, int16_t v1, float t)
-{
-    return v0 + t*(v1-v0);
-}
-
-int main(void)
-{
     int ret = 0;
 
     fd = open(device, O_RDWR);
@@ -147,33 +136,13 @@ int main(void)
     printf("spi mode: %d\n", mode);
     printf("bits per word: %d\n", bits);
     printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
-
-    ad5724_init();
-    int16_t diamond[] = {
-        0, 2047,
-        2047, 0,
-        0, -2047,
-        -2047, 0,
-    };
-    int16_t output = 0;
-    int16_t outputs[4];
-    int cur = 0;
-    int next = 1;
-    for (;;) {
-        int j;
-        int loops = 10;
-        for (j = 0; j < loops; j++) {
-            int16_t x = lerp(diamond[cur*2], diamond[next*2], (float)j / loops);
-            int16_t y = lerp(diamond[cur*2+1], diamond[next*2+1], (float)j / loops);
-            ad5724_set_xy(x, y);
-        }
-        cur = (cur + 1) & 3;
-        next = (next + 1) & 3;
-    }
-
-    close(fd);
-
-    return ret;
+    ad5724_set_output_range(DAC_ADDR_ALL, DAC_RANGE_5);
+    // TODO: delay. or maybe not, should be enough delay from overheads
+    ad5724_set_power(true);
 }
 
+int16_t lerp(int16_t v0, int16_t v1, float t)
+{
+    return v0 + t*(v1-v0);
+}
 
