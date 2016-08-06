@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
@@ -16,28 +17,28 @@ static void pabort(const char *s)
     abort();
 }
 
-static const char *device = "/dev/spidev1.0";
+static const char *device = "/dev/spidev0.0";
 static uint8_t mode;
 static uint8_t bits = 8;
-static uint32_t speed = 10000000;
+static uint32_t speed = 20000000;
 static int fd;
 
 // Write `count` 3-byte transfers
 static int ad5724_write(uint8_t *tx, int count)
 {
-    struct spi_ioc_transfer tr[count];
+    struct spi_ioc_transfer tr;
+    memset(&tr, 0, sizeof(tr));
     int i, ret;
     for (i = 0; i < count; i++) {
-        tr[i].tx_buf = (unsigned long)(tx + i*3);
-        tr[i].rx_buf = (unsigned long)NULL;
-        tr[i].len = 3;
-        tr[i].speed_hz = speed;
-        tr[i].bits_per_word = bits;
-        tr[i].delay_usecs = 0;
-        tr[i].cs_change = 1;
+        tr.tx_buf = (unsigned long)(tx + i*3);
+        tr.rx_buf = (unsigned long)NULL;
+        tr.len = 3;
+        tr.speed_hz = speed;
+        tr.bits_per_word = bits;
+        tr.delay_usecs = 0;
+        tr.cs_change = 0;
+        ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
     }
-    tr[count - 1].cs_change = 0;
-    ret = ioctl(fd, SPI_IOC_MESSAGE(count), tr);
     if (ret < 1)
         pabort("can't send spi message");
 
