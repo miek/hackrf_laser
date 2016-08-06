@@ -162,6 +162,7 @@ uint32_t antenna_enable;
 bool freq_range = false;
 uint32_t freq_min;
 uint32_t freq_max;
+int scan_count;
 
 int fftSize;
 fftwf_complex *fftwIn = NULL;
@@ -176,6 +177,64 @@ float logPower(fftwf_complex in, float scale)
 	float im = in[1] * scale;
 	float magsq = re * re + im * im;
 	return log2f(magsq) * 10.0f / log2(10.0f);
+}
+
+uint8_t cur_power_buffer = 0;
+uint8_t prev_power_buffer = 0;
+#define POWER_BUFFER_COUNT 2 
+static float *power_buffer[POWER_BUFFER_COUNT];
+int power_buffer_len;
+float prev_frequency;
+int current_sweep;
+
+float clamp(float x, float min, float max) {
+    if (x < min) return min;
+    if (x > max) return max;
+    return x;
+}
+
+int16_t scale_coord(float c, float min, float max)
+{
+    return min + c * (max - min);
+}
+
+void draw_point(float x, float y)
+{
+    int16_t x_min = -2047, x_max = 2047;
+    int16_t y_min = -2047, y_max = 2047;
+    int16_t xi = scale_coord(x, x_min, x_max);
+    int16_t yi = scale_coord(y, y_min, y_max);
+    printf("%d,%d,", xi, yi);
+}
+
+void draw_buffer(float *buffer, int buflen, float xoffset, float yoffset, float xscale, float yscale) 
+{
+    const float power_min = -80.0f;
+    const float power_max = 0.0f;
+    int i;
+    for (i = 0; i < buflen; i++) {
+        float sample = buffer[i];
+        sample += power_min;
+        sample /= power_max - power_min;
+        sample += yoffset;
+        sample /= yscale;
+        sample = clamp(sample, 0.0f, 1.0f);
+        float x = (float)i / buflen;
+        x /= xscale;
+        x += xoffset;
+//        fprintf(stderr, "%d, %f\n", i, x);
+        draw_point(x, sample);
+    }
+    printf("\n");
+}
+
+
+void draw_frame() {
+    // is there a new buffer ready?
+    if (cur_power_buffer != prev_power_buffer) {
+        draw_buffer(power_buffer[prev_power_buffer], power_buffer_len, 0, 0, 1, 1);
+        prev_power_buffer = cur_power_buffer;
+    }
 }
 
 int rx_callback(hackrf_transfer* transfer) {
@@ -198,7 +257,9 @@ int rx_callback(hackrf_transfer* transfer) {
 		for(j=0; j<16; j++) {
 			if(buf[0] == 0x7F && buf[1] == 0x7F) {
 				frequency = *(uint16_t*)&buf[2];
-			}
+			} else {
+                continue;
+            }
 			/* copy to fftwIn as floats */
 			buf += 16384 - (fftSize * 2);
 			for(i=0; i < fftSize; i++) {
@@ -207,14 +268,25 @@ int rx_callback(hackrf_transfer* transfer) {
 			}
 			buf += fftSize * 2;
 			fftwf_execute(fftwPlan);
-			for (i=0; i < fftSize; i++) {
+            if (frequency < prev_frequency) {
+                cur_power_buffer = (cur_power_buffer + 1) & (POWER_BUFFER_COUNT - 1);
+            }
+			//fwrite(&frequency, sizeof(float), 1, stdout);
+            int bin_offset = (frequency - freq_min) / 20e6 * fftSize;
+            for (i=1*fftSize/4; i < 3*fftSize/4; i++) {
 				// Start from the middle of the FFTW array and wrap
 				// to rearrange the data
 				int k = i ^ (fftSize >> 1);
-				pwr[i] = logPower(fftwOut[k], 1.0f / fftSize);
+				power_buffer[cur_power_buffer][i+bin_offset] = logPower(fftwOut[k], 1.0f / fftSize);
 			}
-			fwrite(&frequency, sizeof(float), 1, stdout);
-			fwrite(pwr, sizeof(float), fftSize, stdout);
+            for (i=5*fftSize/4; i < 7*fftSize/4; i++) {
+				// Start from the middle of the FFTW array and wrap
+				// to rearrange the data
+				int k = i ^ (fftSize >> 1);
+				power_buffer[cur_power_buffer][i+bin_offset] = logPower(fftwOut[k], 1.0f / fftSize);
+			}
+			//fwrite(pwr, sizeof(float), fftSize, stdout);
+            prev_frequency = frequency;
 		}
 
 		bytes_written = fwrite(transfer->buffer, 1, bytes_to_write, fd);
@@ -347,12 +419,18 @@ int main(int argc, char** argv) {
 	}
 	
 	fftSize = 64;
+    scan_count = (freq_max - freq_min) / 20;
+    power_buffer_len = fftSize * scan_count;
+    prev_frequency = freq_min;
     fftwIn = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
     fftwOut = (fftwf_complex*)fftwf_malloc(sizeof(fftwf_complex) * fftSize);
     fftwPlan = fftwf_plan_dft_1d(fftSize, fftwIn, fftwOut, FFTW_FORWARD, FFTW_MEASURE);
 	pwr = (float*)fftwf_malloc(sizeof(float) * fftSize);
 	window = (float*)fftwf_malloc(sizeof(float) * fftSize);
 	int i;
+    for (i = 0; i < POWER_BUFFER_COUNT; i++) {
+        power_buffer[i] = (float*)fftwf_malloc(sizeof(float) * power_buffer_len);
+    } 
 	for (i = 0; i < fftSize; i++) {
 		window[i] = 0.5f * (1.0f - cos(2 * M_PI * i / (fftSize - 1)));
 	}
@@ -473,6 +551,8 @@ int main(int argc, char** argv) {
 		rate = (float)byte_count_now / time_difference;
 		fprintf(stderr, "%4.1f MiB / %5.3f sec = %4.1f MiB/second\n",
 				(byte_count_now / 1e6f), time_difference, (rate / 1e6f) );
+
+        draw_frame();
 
 		time_start = time_now;
 
