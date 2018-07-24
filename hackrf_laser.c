@@ -36,6 +36,8 @@
 #include <fftw3.h>
 #include <inttypes.h>
 
+#include <libol.h>
+
 #define _FILE_OFFSET_BITS 64
 
 #ifndef bool
@@ -178,6 +180,7 @@ uint32_t antenna_enable;
 
 bool binary_output = false;
 bool ifft_output = false;
+bool openlase_output = false;
 bool one_shot = false;
 volatile bool sweep_started = false;
 
@@ -189,6 +192,7 @@ fftwf_plan fftwPlan = NULL;
 fftwf_complex *ifftwIn = NULL;
 fftwf_complex *ifftwOut = NULL;
 fftwf_plan ifftwPlan = NULL;
+float *openlaseBuf = NULL;
 uint32_t ifft_idx = 0;
 float* pwr;
 float* window;
@@ -230,6 +234,7 @@ int rx_callback(hackrf_transfer* transfer) {
 			buf += BYTES_PER_BLOCK;
 			continue;
 		}
+
 		if (frequency == (uint64_t)(FREQ_ONE_MHZ*frequencies[0])) {
 			if(sweep_started) {
 				if(ifft_output) {
@@ -240,6 +245,26 @@ int rx_callback(hackrf_transfer* transfer) {
 						fwrite(&ifftwOut[i][0], sizeof(float), 1, fd);
 						fwrite(&ifftwOut[i][1], sizeof(float), 1, fd);
 					}
+				}
+				if (openlase_output) {
+					olLoadIdentity3();
+					olLoadIdentity();
+//					olPerspective(60, 1, 1, 100);
+					olTranslate3(0, 0, -3);
+
+					olScale3(0.6f, 0.6f, 0.6f);
+
+					int len = fftSize * step_count;
+					olBegin(OL_LINESTRIP);
+					float mul = 2.0f / len;
+					for (int i = 0; i < len; i++) {
+						float x = i * mul - 1.0f;
+						float pwr = openlaseBuf[i] / 100.0f;
+						olVertex3(x, pwr, 0.0f, (255 << 16) | 255);
+					}
+					olEnd();
+					olRenderFrame(60);
+
 				}
 				sweep_count++;
 				if(one_shot) {
@@ -309,6 +334,18 @@ int rx_callback(hackrf_transfer* transfer) {
 				ifftwIn[ifft_idx + i][0] = fftwOut[i + 1 + (fftSize/8)][0];
 				ifftwIn[ifft_idx + i][1] = fftwOut[i + 1 + (fftSize/8)][1];
 			}
+		} else if (openlase_output) {
+			ifft_idx = (uint32_t) round((frequency - (uint64_t)(FREQ_ONE_MHZ*frequencies[0]))
+					/ fft_bin_width);
+			ifft_idx = (ifft_idx + ifft_bins/2) % ifft_bins;
+			for(i = 0; (fftSize / 4) > i; i++) {
+				openlaseBuf[ifft_idx + i] = pwr[i + 1 + (fftSize*5)/8];
+			}
+			ifft_idx += fftSize / 2;
+			ifft_idx %= ifft_bins;
+			for(i = 0; (fftSize / 4) > i; i++) {
+				openlaseBuf[ifft_idx + i] = pwr[i + 1 + (fftSize/8)];
+			}
 		} else {
 			time_t time_stamp_seconds = time_stamp.tv_sec;
 			fft_time = localtime(&time_stamp_seconds);
@@ -354,6 +391,7 @@ static void usage() {
 	fprintf(stderr, "\t[-1] # one shot mode\n");
 	fprintf(stderr, "\t[-B] # binary output\n");
 	fprintf(stderr, "\t[-I] # binary inverse FFT output\n");
+	fprintf(stderr, "\t[-L] # openlase output\n");
 	fprintf(stderr, "\t-r filename # output file\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Output fields:\n");
@@ -393,7 +431,7 @@ int main(int argc, char** argv) {
 	uint32_t requested_fft_bin_width;
 
 
-	while( (opt = getopt(argc, argv, "a:f:p:l:g:d:n:w:1BIr:h?")) != EOF ) {
+	while( (opt = getopt(argc, argv, "a:f:p:l:g:d:n:w:1BILr:h?")) != EOF ) {
 		result = HACKRF_SUCCESS;
 		switch( opt ) 
 		{
@@ -467,6 +505,10 @@ int main(int argc, char** argv) {
 			ifft_output = true;
 			break;
 
+		case 'L':
+			openlase_output = true;
+			break;
+
 		case 'r':
 			path = optarg;
 			break;
@@ -527,8 +569,8 @@ int main(int argc, char** argv) {
 		num_ranges++;
 	}
 
-	if(binary_output && ifft_output) {
-		fprintf(stderr, "argument error: binary output (-B) and IFFT output (-I) are mutually exclusive.\n");
+	if(binary_output + ifft_output + openlase_output > 1) {
+		fprintf(stderr, "argument error: binary output (-B), IFFT output (-I) and openlase output (-L) are mutually exclusive.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -651,6 +693,32 @@ int main(int argc, char** argv) {
 		ifftwPlan = fftwf_plan_dft_1d(fftSize * step_count, ifftwIn, ifftwOut, FFTW_BACKWARD, FFTW_MEASURE);
 	}
 
+	if (openlase_output) {
+		openlaseBuf = (float*)malloc(sizeof(float) * fftSize * step_count);
+		OLRenderParams params;
+
+		memset(&params, 0, sizeof params);
+		params.rate = 48000;
+		params.on_speed = 2.0/100.0;
+		params.off_speed = 2.0/20.0;
+		params.start_wait = 8;
+		params.start_dwell = 3;
+		params.curve_dwell = 0;
+		params.corner_dwell = 8;
+		params.curve_angle = cosf(30.0*(M_PI/180.0)); // 30 deg
+		params.end_dwell = 3;
+		params.end_wait = 7;
+		params.snap = 1/100000.0;
+		params.render_flags = RENDER_GRAYSCALE;
+
+		if(olInit(3, 30000) < 0)
+			return EXIT_FAILURE;
+
+		olSetRenderParams(&params);
+
+		olBegin(OL_LINESTRIP);
+	}
+
 	result |= hackrf_start_rx(device, rx_callback, NULL);
 	if (result != HACKRF_SUCCESS) {
 		fprintf(stderr, "hackrf_start_rx() failed: %s (%d)\n", hackrf_error_name(result), result);
@@ -749,6 +817,10 @@ int main(int argc, char** argv) {
 		fd = NULL;
 		fprintf(stderr, "fclose(fd) done\n");
 	}
+
+	if (openlase_output)
+		olShutdown();
+
 	fftwf_free(fftwIn);
 	fftwf_free(fftwOut);
 	fftwf_free(pwr);
